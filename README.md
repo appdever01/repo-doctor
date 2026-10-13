@@ -136,6 +136,8 @@ cargo build --locked --release -j 2
 sh scripts/package-release.sh
 ```
 
+Packaging requires a clean committed tree and a compiler with retained standard-library notices, currently Rust 1.99.0. Source installation can use the other verified compiler versions above.
+
 The binary uses a small library. Discovery retains declarations, check modules interpret them, and bounded host adapters collect observations. Both renderers share a report and exit policy. Tests cover parsing, subprocess and socket behavior, schema validation, safety boundaries and corrected-project workflows.
 
 Repo Doctor's original work is the diagnostic workflow and report policy. [clap](https://docs.rs/clap/) supplies argument parsing, [node-semver](https://docs.rs/node-semver/) supplies npm ranges, and [pep440_rs](https://docs.rs/pep440_rs/) supplies Python specifiers. The local environment parser preserves literal values and sanitized errors. [mise](https://github.com/jdx/mise) informed the brief; no mise source was copied. See [dependency notices](THIRD_PARTY_NOTICES.md) for retained licenses and credits. Original code is MIT licensed.

@@ -7,6 +7,11 @@ if test -n "$(git status --porcelain --untracked-files=normal)"; then
     echo "Commit the release source before packaging." >&2
     exit 2
 fi
+compiler_version=$(rustc --version | cut -d ' ' -f 2)
+if test ! -f "licenses/rust-standard-library-$compiler_version/COPYRIGHT-library.html"; then
+    echo "Retain the Rust $compiler_version standard-library notices before packaging." >&2
+    exit 2
+fi
 cargo build --locked --release -j 2
 output=${1:-.local/dist}
 mkdir -p "$output"

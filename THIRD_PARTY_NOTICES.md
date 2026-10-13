@@ -2,6 +2,8 @@
 
 The original Repo Doctor code is MIT licensed. Dependencies are provided under their own licenses. This inventory comes from Cargo.lock and includes test-only and target-specific packages. The retained license texts and notices are in `licenses/`. No mise source was copied.
 
+The native release binaries also link the Rust standard library. Its licenses and complete upstream library copyright inventory for Rust 1.99.0 are retained in `licenses/rust-standard-library-1.99.0/`, from the [official Rust distribution](https://static.rust-lang.org/dist/rustc-1.99.0-aarch64-unknown-linux-gnu.tar.xz). Packaging requires matching retained notices for the compiler in use.
+
 | Package | Version | Declared license |
 | --- | --- | --- |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
