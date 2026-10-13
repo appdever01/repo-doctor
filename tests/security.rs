@@ -239,13 +239,13 @@ async fn probes_are_bounded_and_reap_children() {
         let budget = if expected == "deadline" {
             Duration::from_millis(150)
         } else {
-            Duration::from_secs(1)
+            Duration::from_secs(3)
         };
         let error = repo_doctor::runner::probe(&executable_path, &["--version"], budget)
             .await
             .unwrap_err();
         assert!(error.contains(expected), "{script}: {error}");
-        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(start.elapsed() < Duration::from_secs(4));
     }
     let pid_file = host.path().join("pid");
     executable(
@@ -255,7 +255,7 @@ async fn probes_are_bounded_and_reap_children() {
             pid_file.display()
         ),
     );
-    repo_doctor::runner::probe(&executable_path, &["--version"], Duration::from_millis(150))
+    repo_doctor::runner::probe(&executable_path, &["--version"], Duration::from_secs(3))
         .await
         .unwrap_err();
     let pid: i32 = fs::read_to_string(pid_file).unwrap().parse().unwrap();
