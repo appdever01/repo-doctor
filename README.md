@@ -6,7 +6,7 @@ Repo Doctor explains unmet local setup requirements in Node.js and Python projec
 repo-doctor check
 ```
 
-Each finding includes its source and a next step when needed. The tool reads the selected directory without running project scripts, installing packages or changing files. It works offline. Passing means the declared checks succeeded; dependencies, builds, credentials and application health need their own checks.
+Each finding includes its source and a next step when needed. The tool reads the selected directory without running project scripts, installing packages or changing files. It works offline. Passing means the supported setup checks succeeded; build outputs, credentials and application health need their own checks.
 
 ## Install from source
 
@@ -23,14 +23,14 @@ Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source
 
 ## Native archives
 
-Download [version 0.1.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.0) archives for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`; native checks cover Debian 13 arm64 and Ubuntu 24.04 x86_64. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified.
+Download [version 0.1.1](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.1) archives for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified. [Version 0.1.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.0) remains available unchanged.
 
 After downloading the matching archive and its `.sha256` file, verify and extract it:
 
 ```sh
-shasum -a 256 -c repo-doctor-0.1.0-aarch64-apple-darwin.tar.gz.sha256
-tar -xzf repo-doctor-0.1.0-aarch64-apple-darwin.tar.gz
-./repo-doctor-0.1.0-aarch64-apple-darwin/repo-doctor --version
+shasum -a 256 -c repo-doctor-0.1.1-aarch64-apple-darwin.tar.gz.sha256
+tar -xzf repo-doctor-0.1.1-aarch64-apple-darwin.tar.gz
+./repo-doctor-0.1.1-aarch64-apple-darwin/repo-doctor --version
 ```
 
 Use the GNU/Linux filenames on Linux; `sha256sum -c` also verifies the checksum there. Move the binary to a directory on PATH if you want to run it from anywhere. These are unsigned command-line binaries; source installation is available if local policy requires signed downloads.
@@ -55,6 +55,8 @@ The path defaults to the current directory. Repo Doctor does not search parent d
 | Python | `pyproject.toml` with `project.requires-python`, `.python-version`, and explicit configuration. Host Python 3 only. |
 | Environment | Names from `.env.example`, plus configured required names. Template values never satisfy a requirement. |
 | Package manager | Root npm, pnpm, Yarn and Bun lockfile names and `packageManager`. Launcher presence only; launchers are never executed. Conflicting hints are reported. Bun runtime checks are unsupported. |
+| Installed dependencies | Each required direct dependency and development dependency in `package.json` must have a readable JSON object at `node_modules/<name>/package.json`. Optional and peer dependencies are excluded. Package code is never loaded. |
+| pnpm builds | Read `ignoredBuilds` and `pendingBuilds` in `node_modules/.modules.yaml`. Recorded blocked or pending scripts fail; Repo Doctor never invokes pnpm, approves scripts or checks native build output. |
 | Ports | Temporarily bind explicitly configured loopback ports and release them. Availability can change after the check. |
 | Services | With `--services`, attempt a bounded loopback TCP connection. No payload or authentication is sent. |
 
@@ -95,6 +97,14 @@ Versions and ports here are examples. A Python requirement uses `python = ">=3.1
 
 File paths are relative to the selected project. Absolute paths, parent escapes and symlinks leading outside it are rejected. Configuration contains requirements and variable names, never credentials.
 
+## Dependency checks
+
+Dependency inspection reads only the declared package manifests and the fixed pnpm metadata file, including in static mode. It does not recursively scan `node_modules`, inspect ancestor directories, evaluate dependency specifications or execute package entry points. An installed manifest establishes presence only; package versions, binaries, transitive dependencies and generated outputs need separate checks.
+
+pnpm metadata support covers emitted layout version 5, isolated or hoisted `node_modules`, block sequences or empty `[]` build lists, and plain, single-quoted or JSON-escaped double-quoted scalars. YAML aliases, tags, nonempty flow sequences and unsupported layouts remain unverified. Missing pnpm metadata also remains unverified when pnpm is declared and required dependencies exist. Reports give build-record counts without serializing their contents, registry configuration or store paths.
+
+Plug'n'Play loaders and symlinks outside the selected directory remain unverified. pnpm's explicit omission of development dependencies produces skipped development checks; strict mode rejects that incomplete coverage. Other `node_modules` installations check development dependencies too. Review missing dependencies and recorded blocked builds outside Repo Doctor. A blocked script can be intentional or unnecessary when a package supplies prebuilt output; the finding reports pnpm's record, not a proven startup failure.
+
 ## Environment rules
 
 By default, `.env` loads first, `.env.local` overrides it, and process variables override both. An empty higher-priority value stays empty. This is Repo Doctor's convention; list different files if your framework uses another order.
@@ -118,11 +128,11 @@ Outcomes are `passed`, `issues_found`, `incomplete`, `invalid_input` and `intern
 
 ## Limits
 
-Checks run sequentially. Runtime probes have a 3-second deadline, TCP connections 500 milliseconds, and the run a 15-second deadline. Each input file is limited to 1 MiB, combined contents to 16 MiB, captured output to 16 KiB per stream, and port and service checks to 32 combined. There are at most 32 environment value files. Errors and unfinished checks stay visible. Child processes are terminated and reaped, and sockets are released.
+Checks run sequentially. Runtime probes have a 3-second deadline, TCP connections 500 milliseconds, and the run a 15-second deadline. Each input file is limited to 1 MiB, combined contents to 16 MiB, captured output to 16 KiB per stream, and port and service checks to 32 combined. There are at most 32 environment value files, 256 entries per dependency declaration field, 256 required direct dependencies and 256 pnpm build records. Errors and unfinished checks stay visible. Child processes are terminated and reaped, and sockets are released.
 
 File and PATH inspection use bounded worker waits, so a stalled filesystem operation produces an incomplete report at the run deadline. The command does not wait for a stalled worker during shutdown. Probes clear inherited startup variables and use fixed arguments. No remote network request is made by the tool; service checks stay on loopback.
 
-Version 0.1.0 does not inspect virtual environments, installed packages, Docker, recursive monorepos or database credentials. An accepted TCP connection establishes reachability only.
+Version 0.1.1 does not inspect virtual environments, Docker, recursive monorepos or database credentials. An accepted TCP connection establishes reachability only.
 
 ## Demo and development
 

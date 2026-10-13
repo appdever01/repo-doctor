@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 - 2026-10-13
+
+- Check required direct Node dependencies and development dependencies for installed package manifests without loading package code.
+- Report pnpm's recorded ignored and pending dependency builds without running pnpm or approving scripts.
+- Keep missing metadata, unsupported installation layouts, production-only development omissions and unsafe paths unverified.
+- Bound dependency declarations and pnpm build records to 256, reusing the file-size, combined-size, cancellation and 15-second run limits.
+
+The JSON schema and exit-code contract remain unchanged. Optional dependencies and peer dependencies are excluded. These checks do not establish dependency versions, transitive dependency integrity, native build outputs or application health. Version 0.1.0 remains available unchanged.
+
 ## 0.1.0 - 2026-10-13
 
 Initial release:

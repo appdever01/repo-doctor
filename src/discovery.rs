@@ -1,3 +1,4 @@
+use crate::checks::dependencies::DependencyPlan;
 use crate::checks::runtime::Runtime;
 use crate::config::Config;
 use crate::model::{CheckResult, Status};
@@ -9,6 +10,7 @@ pub struct ProjectRequirements {
     pub runtimes: Vec<Runtime>,
     pub findings: Vec<CheckResult>,
     pub supported: bool,
+    pub dependencies: Option<DependencyPlan>,
 }
 
 async fn read(
@@ -45,11 +47,22 @@ pub async fn discover(
     let mut python_present = config.runtimes.python.is_some();
     let mut managers = BTreeSet::new();
     let mut package_found = false;
+    let mut dependencies = None;
     if let Some(input) = read(reader, "package.json", &mut findings).await {
         node_present = true;
         package_found = true;
         match serde_json::from_str::<serde_json::Value>(&input) {
             Ok(value) if value.is_object() => {
+                match DependencyPlan::parse(&value) {
+                    Ok(plan) => dependencies = Some(plan),
+                    Err(reason) => findings.push(CheckResult::new(
+                        "dependencies.declarations",
+                        Status::Error,
+                        "dependencies.declaration_invalid",
+                        reason,
+                        "package.json",
+                    )),
+                }
                 if let Some(engines) = value.get("engines") {
                     if !engines.is_object() {
                         findings.push(CheckResult::new(
@@ -178,6 +191,9 @@ pub async fn discover(
             .next("Review the package-manager declaration and keep the intended lockfile."),
         );
     }
+    if let Some(plan) = &mut dependencies {
+        plan.pnpm = managers.contains("pnpm");
+    }
     let bun_only = managers.len() == 1
         && managers.contains("bun")
         && node.requirements.is_empty()
@@ -245,5 +261,6 @@ pub async fn discover(
         supported: configured || package_found || node_present || python_present,
         runtimes,
         findings,
+        dependencies,
     }
 }

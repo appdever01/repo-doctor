@@ -15,19 +15,20 @@ concurrency:
 env:
   CARGO_BUILD_JOBS: 2
   RUST_TEST_THREADS: 2
+  RUSTUP_TOOLCHAIN: 1.99.0
 
 jobs:
   native:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Install stable Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Install tested Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
       - name: Test
         run: cargo test --locked -- --test-threads=2
       - name: Formatting

@@ -182,6 +182,9 @@ impl FileReader {
     }
 
     pub async fn read(&mut self, name: &str) -> Result<Option<String>, &'static str> {
+        if self.total >= TOTAL_LIMIT {
+            return Err("Inputs exceed the combined 16 MiB limit.");
+        }
         let reader = Self::new(self.root.clone());
         let name = name.to_owned();
         let bytes = within_deadline(self.deadline, &self.cancelled, move || {

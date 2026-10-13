@@ -432,65 +432,74 @@ fn stalled_file_read_returns_collected_findings_on_deadline_and_cancellation() {
     fixture.write(".nvmrc", "22");
     fixture.write(".env.example", "SAFE_NAME=synthetic-template\n");
     fixture.write(".env.local", "SAFE_NAME=synthetic-value\n");
+    fixture.write(
+        "package.json",
+        r#"{"engines":{"node":">=22"},"dependencies":{"synthetic":"1"}}"#,
+    );
+    fs::create_dir_all(fixture.project.path().join("node_modules/synthetic")).unwrap();
+    fixture.write("node_modules/synthetic/package.json", "{}");
+    fixture.write("node_modules/.modules.yaml", "included:\n  dependencies: true\n  devDependencies: true\n  optionalDependencies: true\nlayoutVersion: 5\npackageManager: pnpm@10.13.1\npendingBuilds: []\n");
     let marker = fixture.host.path().join("started");
 
-    for signal in [None, Some(Signal::SIGINT), Some(Signal::SIGTERM)] {
-        let _ = fs::remove_file(&marker);
-        let start = Instant::now();
-        let mut child = fixture
-            .command()
-            .args(["--format", "json"])
-            .env("LD_PRELOAD", &library)
-            .env(
-                "REPO_DOCTOR_TEST_STALL_FILE",
-                fixture
-                    .project
-                    .path()
-                    .canonicalize()
-                    .unwrap()
-                    .join(".env.local"),
-            )
-            .env("REPO_DOCTOR_TEST_STALL_MARKER", &marker)
-            .env("SAFE_NAME", "DO_NOT_PRINT_STALLED_FILE_SECRET")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        while !marker.exists() {
-            if start.elapsed() > Duration::from_secs(5) {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("The controlled file read did not start.");
+    for file in [
+        ".env.local",
+        "node_modules/.modules.yaml",
+        "node_modules/synthetic/package.json",
+    ] {
+        for signal in [None, Some(Signal::SIGINT), Some(Signal::SIGTERM)] {
+            let _ = fs::remove_file(&marker);
+            let start = Instant::now();
+            let mut child = fixture
+                .command()
+                .args(["--format", "json"])
+                .env("LD_PRELOAD", &library)
+                .env(
+                    "REPO_DOCTOR_TEST_STALL_FILE",
+                    fixture.project.path().canonicalize().unwrap().join(file),
+                )
+                .env("REPO_DOCTOR_TEST_STALL_MARKER", &marker)
+                .env("SAFE_NAME", "DO_NOT_PRINT_STALLED_FILE_SECRET")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            while !marker.exists() {
+                if start.elapsed() > Duration::from_secs(5) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("The controlled file read did not start.");
+                }
+                std::thread::sleep(Duration::from_millis(10));
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        if let Some(signal) = signal {
-            kill(Pid::from_raw(child.id() as i32), signal).unwrap();
-        }
-        let limit = if signal.is_some() { 5 } else { 18 };
-        while child.try_wait().unwrap().is_none() {
-            if start.elapsed() > Duration::from_secs(limit) {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("A stalled file read held the command open.");
+            if let Some(signal) = signal {
+                kill(Pid::from_raw(child.id() as i32), signal).unwrap();
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let output = child.wait_with_output().unwrap();
-        assert_eq!(output.status.code(), Some(1));
-        assert!(output.stderr.is_empty());
-        let report = serde_json::from_slice(&output.stdout).unwrap();
-        common::validate(&report);
-        finding(&report, "execution.incomplete");
-        finding(&report, "env.present");
-        finding(&report, "runtime.unverified");
-        assert_eq!(report["complete"], false);
-        assert_eq!(report["project"]["runtimes"][0], "node");
-        assert!(
-            !String::from_utf8_lossy(&output.stdout).contains("DO_NOT_PRINT_STALLED_FILE_SECRET")
-        );
-        if signal.is_none() {
-            assert!(start.elapsed() >= Duration::from_secs(14));
+            let limit = if signal.is_some() { 5 } else { 18 };
+            while child.try_wait().unwrap().is_none() {
+                if start.elapsed() > Duration::from_secs(limit) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("A stalled file read held the command open.");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stderr.is_empty());
+            let report = serde_json::from_slice(&output.stdout).unwrap();
+            common::validate(&report);
+            finding(&report, "execution.incomplete");
+            finding(&report, "env.present");
+            finding(&report, "runtime.unverified");
+            assert_eq!(report["complete"], false);
+            assert_eq!(report["project"]["runtimes"][0], "node");
+            assert!(
+                !String::from_utf8_lossy(&output.stdout)
+                    .contains("DO_NOT_PRINT_STALLED_FILE_SECRET")
+            );
+            if signal.is_none() {
+                assert!(start.elapsed() >= Duration::from_secs(14));
+            }
         }
     }
 }

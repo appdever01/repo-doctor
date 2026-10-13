@@ -1,4 +1,4 @@
-use crate::checks::{environment, runtime, sockets};
+use crate::checks::{dependencies, environment, runtime, sockets};
 use crate::cli::Options;
 use crate::config::{Config, Endpoint};
 use crate::discovery::discover;
@@ -86,6 +86,11 @@ pub async fn check(options: &Options) -> Report {
     project
         .findings
         .extend(environment::check(&mut reader, &config.env).await);
+    if let Some(plan) = &project.dependencies {
+        project
+            .findings
+            .extend(dependencies::check(&mut reader, plan).await);
+    }
     host.cancelled |= cancelled.is_cancelled();
     let kinds = project.runtimes.iter().map(|r| r.kind.to_owned()).collect();
     for runtime in &project.runtimes {
