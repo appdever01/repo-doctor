@@ -11,4 +11,4 @@ Initial release candidate:
 - Bounded file and PATH inspection, runtime output and socket probes, including cancellation and child cleanup.
 - Source installation, native archive packaging, retained dependency licenses and a synthetic failure-to-correction demo.
 
-Native validation covers macOS arm64 and Debian Linux arm64. Hosted CI has not run; x86_64 and Windows remain unverified. No package or public release has been published.
+Native validation covers macOS arm64, Debian Linux arm64 and Ubuntu Linux x86_64. Hosted macOS and Linux CI passed. Intel macOS and Windows remain unverified. No package or public release has been published.

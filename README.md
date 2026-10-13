@@ -19,11 +19,11 @@ cargo install --path . --locked -j 2
 repo-doctor --version
 ```
 
-Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source installation, tests and release builds are verified on macOS arm64 with Rust 1.97.1 and Debian Linux arm64 in Docker with Rust 1.99.0. The hosted CI workflow targets macOS and Linux; its jobs have not run yet. Windows support is deferred. There is no crates.io package or automatic installer.
+Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source installation, tests and release builds are verified on macOS arm64 with Rust 1.97.1 and Debian Linux arm64 in Docker with Rust 1.99.0. Hosted macOS arm64 and Ubuntu Linux x86_64 checks also passed with Rust 1.99.0. See the [CI runs](https://github.com/appdever01/repo-doctor/actions). Windows support is deferred. There is no crates.io package or automatic installer.
 
 ## Native archives
 
-Version 0.1.0 archives are prepared for `aarch64-apple-darwin` and `aarch64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux binary requires glibc 2.39 or newer and `libgcc_s.so.1`; it is tested on Debian 13 arm64. Alpine Linux and older glibc systems need their own source build. No x86_64 archive has been verified.
+Version 0.1.0 archives are prepared for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`; native checks cover Debian 13 arm64 and Ubuntu 24.04 x86_64. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified.
 
 After downloading the matching archive and its `.sha256` file, verify and extract it:
 
