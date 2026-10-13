@@ -1,6 +1,6 @@
 use crate::checks::{environment, runtime, sockets};
 use crate::cli::Options;
-use crate::config::Config;
+use crate::config::{Config, Endpoint};
 use crate::discovery::discover;
 use crate::model::{CheckResult, Report, Status};
 use crate::runner::Host;
@@ -69,22 +69,22 @@ pub async fn check(options: &Options) -> Report {
     }
     for endpoint in &config.ports {
         project.findings.push(
-            sockets::check(
+            endpoint_check(
                 endpoint,
                 false,
                 !options.static_mode && !host.cancelled,
-                host.deadline,
+                &mut host,
             )
             .await,
         );
     }
     for endpoint in &config.services {
         project.findings.push(
-            sockets::check(
+            endpoint_check(
                 endpoint,
                 true,
                 options.services && !options.static_mode && !host.cancelled,
-                host.deadline,
+                &mut host,
             )
             .await,
         );
@@ -99,6 +99,24 @@ pub async fn check(options: &Options) -> Report {
         ));
     }
     Report::build(project.findings, kinds, options.strict, false)
+}
+
+async fn endpoint_check(
+    endpoint: &Endpoint,
+    service: bool,
+    enabled: bool,
+    host: &mut Host,
+) -> CheckResult {
+    if !enabled {
+        return sockets::check(endpoint, service, false, host.deadline).await;
+    }
+    tokio::select! {
+        result = sockets::check(endpoint, service, true, host.deadline) => result,
+        _ = crate::runner::cancellation() => {
+            host.cancelled = true;
+            CheckResult::new(&format!("{}.{}", if service { "service" } else { "port" }, endpoint.name), Status::Skipped, "execution.cancelled", "The configured socket check was cancelled.", ".repo-doctor.toml")
+        }
+    }
 }
 
 fn invalid_config(reason: &str, strict: bool) -> Report {

@@ -288,6 +288,15 @@ fn missing_nonzero_malformed_and_python_fallback() {
 
 #[test]
 fn cancellation_produces_a_report_and_reaps_the_probe() {
+    for signal in [
+        nix::sys::signal::Signal::SIGINT,
+        nix::sys::signal::Signal::SIGTERM,
+    ] {
+        assert_cancellation_cleanup(signal);
+    }
+}
+
+fn assert_cancellation_cleanup(signal: nix::sys::signal::Signal) {
     let fixture = Fixture::new();
     fixture.write(".nvmrc", "22");
     let pid_file = fixture.host.path().join("child-pid");
@@ -310,11 +319,7 @@ fn cancellation_produces_a_report_and_reaps_the_probe() {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     }
-    nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(child.id() as i32),
-        nix::sys::signal::Signal::SIGINT,
-    )
-    .unwrap();
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(child.id() as i32), signal).unwrap();
     while child.try_wait().unwrap().is_none() {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));

@@ -94,6 +94,20 @@ async fn bounded_read<R: tokio::io::AsyncRead + Unpin>(stream: R) -> Result<Vec<
     Ok(bytes)
 }
 
+pub async fn cancellation() {
+    #[cfg(unix)]
+    if let Ok(mut terminate) =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => (),
+            _ = terminate.recv() => (),
+        }
+        return;
+    }
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 pub async fn probe(
     executable: &Path,
     args: &[&str],
@@ -134,7 +148,7 @@ pub async fn probe(
             let bytes = if out.is_empty() { err } else { out };
             String::from_utf8(bytes).map_err(|_| "Runtime output is not valid UTF-8.")
         }) => result.unwrap_or(Err("Runtime probe exceeded its deadline.")),
-        _ = tokio::signal::ctrl_c() => Err("The run was cancelled."),
+        _ = cancellation() => Err("The run was cancelled."),
     };
     drop(group);
     if result.is_err() {
