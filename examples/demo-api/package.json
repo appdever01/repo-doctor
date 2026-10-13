@@ -1,0 +1,5 @@
+{
+  "name": "repo-doctor-demo-api",
+  "private": true,
+  "engines": { "node": "0.0.1" }
+}

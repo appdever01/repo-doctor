@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_BUILD_JOBS: 2
+  RUST_TEST_THREADS: 2
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Test
+        run: cargo test --locked -- --test-threads=2
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Release build
+        run: cargo build --locked --release
+      - name: Verify source installation
+        run: |
+          cargo install --path . --locked --root "$RUNNER_TEMP/repo-doctor-install" --target-dir target -j 2
+          "$RUNNER_TEMP/repo-doctor-install/bin/repo-doctor" --version
+          "$RUNNER_TEMP/repo-doctor-install/bin/repo-doctor" check examples/demo-api --static --format json > "$RUNNER_TEMP/static-report.json" || test "$?" -eq 1
+      - name: Package native build
+        run: |
+          mkdir -p dist
+          tar -czf "dist/repo-doctor-${{ runner.os }}-$(uname -m).tar.gz" -C target/release repo-doctor -C ../.. LICENSE THIRD_PARTY_NOTICES.md licenses
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: repo-doctor-${{ runner.os }}
+          path: dist/*.tar.gz
+          retention-days: 14
