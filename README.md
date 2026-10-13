@@ -23,7 +23,7 @@ Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source
 
 ## Native archives
 
-Version 0.1.0 archives are prepared for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`; native checks cover Debian 13 arm64 and Ubuntu 24.04 x86_64. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified.
+Download [version 0.1.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.0) archives for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`; native checks cover Debian 13 arm64 and Ubuntu 24.04 x86_64. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified.
 
 After downloading the matching archive and its `.sha256` file, verify and extract it:
 
@@ -33,7 +33,7 @@ tar -xzf repo-doctor-0.1.0-aarch64-apple-darwin.tar.gz
 ./repo-doctor-0.1.0-aarch64-apple-darwin/repo-doctor --version
 ```
 
-Use the GNU/Linux filenames on Linux; `sha256sum -c` also verifies the checksum there. Move the binary to a directory on PATH if you want to run it from anywhere. These are unsigned command-line binaries; source installation is available if local policy requires signed downloads. Release assets are being prepared and have not been published.
+Use the GNU/Linux filenames on Linux; `sha256sum -c` also verifies the checksum there. Move the binary to a directory on PATH if you want to run it from anywhere. These are unsigned command-line binaries; source installation is available if local policy requires signed downloads.
 
 ## Use
 
