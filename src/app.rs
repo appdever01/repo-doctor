@@ -116,7 +116,7 @@ pub async fn check(options: &Options) -> Report {
             .await,
         );
     }
-    if host.cancelled || std::time::Instant::now() >= host.deadline {
+    if host.cancelled || cancelled.is_cancelled() || Instant::now() >= host.deadline {
         project.findings.push(CheckResult::new(
             "execution.incomplete",
             Status::Error,
@@ -149,12 +149,13 @@ async fn endpoint_check(
     enabled: bool,
     host: &mut Host,
 ) -> CheckResult {
-    if !enabled {
+    host.cancelled |= host.filesystem_cancelled.is_cancelled();
+    if !enabled || host.cancelled {
         return sockets::check(endpoint, service, false, host.deadline).await;
     }
     tokio::select! {
         result = sockets::check(endpoint, service, true, host.deadline) => result,
-        _ = crate::runner::cancellation() => {
+        _ = host.filesystem_cancelled.wait() => {
             host.cancelled = true;
             CheckResult::new(&format!("{}.{}", if service { "service" } else { "port" }, endpoint.name), Status::Skipped, "execution.cancelled", "The configured socket check was cancelled.", ".repo-doctor.toml")
         }
