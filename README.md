@@ -19,7 +19,7 @@ cargo install --path . --locked -j 2
 repo-doctor --version
 ```
 
-Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Local development is on macOS with Rust 1.97.1. CI checks macOS and Linux. Windows support is deferred. There is no crates.io package or automatic installer.
+Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source installation, tests and release builds are verified on macOS arm64 with Rust 1.97.1 and Debian Linux arm64 in Docker with Rust 1.99.0. The hosted CI workflow targets macOS and Linux; its jobs have not run yet. Windows support is deferred. There is no crates.io package or automatic installer.
 
 ## Use
 
