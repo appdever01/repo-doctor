@@ -164,8 +164,8 @@ fn project_local_executable_shims_relative_paths_and_injection_are_not_run() {
     assert!(!fixture.project.path().join("sentinel").exists());
 }
 
-#[test]
-fn file_boundaries_symlinks_permissions_and_limits() {
+#[tokio::test]
+async fn file_boundaries_symlinks_permissions_and_limits() {
     let fixture = Fixture::new();
     fs::write(fixture.host.path().join("outside"), "{}").unwrap();
     symlink(
@@ -205,9 +205,9 @@ fn file_boundaries_symlinks_permissions_and_limits() {
         repo_doctor::safety::FileReader::new(fixture.project.path().canonicalize().unwrap());
     fixture.write("large", &"x".repeat(repo_doctor::safety::FILE_LIMIT));
     for _ in 0..16 {
-        assert!(reader.read("large").is_ok());
+        assert!(reader.read("large").await.is_ok());
     }
-    assert!(reader.read("large").is_err());
+    assert!(reader.read("large").await.is_err());
     fixture.write(".env.example", "SAFE_NAME=example\n");
     fixture.write(
         ".repo-doctor.toml",
@@ -345,6 +345,7 @@ async fn expired_run_deadline_preserves_incomplete_checks() {
         path: Some(fixture.host.path().into()),
         deadline: Instant::now(),
         cancelled: false,
+        filesystem_cancelled: Default::default(),
     };
     assert!(matches!(
         host.runtime("node").await,
@@ -358,4 +359,138 @@ async fn expired_run_deadline_preserves_incomplete_checks() {
     let check = repo_doctor::checks::sockets::check(&endpoint, false, true, Instant::now()).await;
     assert_eq!(check.status, repo_doctor::model::Status::Skipped);
     assert!(!check.evaluated);
+}
+
+#[tokio::test]
+async fn blocked_filesystem_work_does_not_hold_the_deadline() {
+    use repo_doctor::safety::{FileReader, within_deadline};
+    use std::sync::mpsc;
+
+    let (release, wait) = mpsc::channel();
+    let (finished, completion) = mpsc::channel();
+    let start = Instant::now();
+    let cancelled = repo_doctor::safety::Cancellation::default();
+    let result = within_deadline(start + Duration::from_millis(100), &cancelled, move || {
+        wait.recv().unwrap();
+        finished.send(()).unwrap();
+    })
+    .await;
+    assert_eq!(result, Err("The whole-run deadline was exceeded."));
+    assert!(start.elapsed() < Duration::from_secs(1));
+    release.send(()).unwrap();
+    completion.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let fixture = Fixture::new();
+    fixture.write("package.json", "{}");
+    let mut reader = FileReader::new(fixture.project.path().canonicalize().unwrap());
+    reader.deadline = Instant::now();
+    for result in [
+        reader.read("package.json").await.map(|_| ()),
+        reader.present("package.json").await.map(|_| ()),
+        reader.boundary("package.json").await,
+    ] {
+        assert_eq!(result, Err("The whole-run deadline was exceeded."));
+    }
+    let (sent, received) = mpsc::channel();
+    assert!(
+        within_deadline(Instant::now(), &cancelled, move || sent.send(()))
+            .await
+            .is_err()
+    );
+    assert_eq!(received.try_recv(), Err(mpsc::TryRecvError::Disconnected));
+    cancelled.cancel();
+    assert_eq!(
+        within_deadline(Instant::now() + Duration::from_secs(1), &cancelled, || ()).await,
+        Err("The run was cancelled.")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stalled_file_read_returns_collected_findings_on_deadline_and_cancellation() {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+    use std::process::{Command, Stdio};
+
+    let fixture = Fixture::new();
+    let library = fixture.host.path().join("stall-file.so");
+    let compile = Command::new("cc")
+        .args(["-shared", "-fPIC", "-Wall", "-Wextra", "-Werror"])
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/helpers/stall_file.c"
+        ))
+        .args(["-ldl", "-o"])
+        .arg(&library)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    fixture.write(".nvmrc", "22");
+    fixture.write(".env.example", "SAFE_NAME=synthetic-template\n");
+    fixture.write(".env.local", "SAFE_NAME=synthetic-value\n");
+    let marker = fixture.host.path().join("started");
+
+    for signal in [None, Some(Signal::SIGINT), Some(Signal::SIGTERM)] {
+        let _ = fs::remove_file(&marker);
+        let start = Instant::now();
+        let mut child = fixture
+            .command()
+            .args(["--format", "json"])
+            .env("LD_PRELOAD", &library)
+            .env(
+                "REPO_DOCTOR_TEST_STALL_FILE",
+                fixture
+                    .project
+                    .path()
+                    .canonicalize()
+                    .unwrap()
+                    .join(".env.local"),
+            )
+            .env("REPO_DOCTOR_TEST_STALL_MARKER", &marker)
+            .env("SAFE_NAME", "DO_NOT_PRINT_STALLED_FILE_SECRET")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        while !marker.exists() {
+            if start.elapsed() > Duration::from_secs(5) {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("The controlled file read did not start.");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if let Some(signal) = signal {
+            kill(Pid::from_raw(child.id() as i32), signal).unwrap();
+        }
+        let limit = if signal.is_some() { 5 } else { 18 };
+        while child.try_wait().unwrap().is_none() {
+            if start.elapsed() > Duration::from_secs(limit) {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("A stalled file read held the command open.");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stderr.is_empty());
+        let report = serde_json::from_slice(&output.stdout).unwrap();
+        common::validate(&report);
+        finding(&report, "execution.incomplete");
+        finding(&report, "env.present");
+        finding(&report, "runtime.unverified");
+        assert_eq!(report["complete"], false);
+        assert_eq!(report["project"]["runtimes"][0], "node");
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains("DO_NOT_PRINT_STALLED_FILE_SECRET")
+        );
+        if signal.is_none() {
+            assert!(start.elapsed() >= Duration::from_secs(14));
+        }
+    }
 }

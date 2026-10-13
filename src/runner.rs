@@ -1,7 +1,8 @@
-use crate::safety::OUTPUT_LIMIT;
+use crate::safety::{Cancellation, OUTPUT_LIMIT};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -24,6 +25,7 @@ pub struct Host {
     pub path: Option<OsString>,
     pub deadline: Instant,
     pub cancelled: bool,
+    pub filesystem_cancelled: Arc<Cancellation>,
 }
 
 struct ProcessGroup(Option<u32>);
@@ -159,6 +161,17 @@ pub async fn probe(
 }
 
 impl Host {
+    pub async fn select(&self, name: &str) -> Selection {
+        let name = name.to_owned();
+        let root = self.root.clone();
+        let path = self.path.clone();
+        crate::safety::within_deadline(self.deadline, &self.filesystem_cancelled, move || {
+            select_executable(&name, path.as_deref(), &root)
+        })
+        .await
+        .unwrap_or_else(Selection::Unverified)
+    }
+
     pub async fn runtime(&mut self, kind: &str) -> Observation {
         let names: &[&str] = if kind == "node" {
             &["node"]
@@ -167,12 +180,15 @@ impl Host {
         };
         let mut last = Observation::Missing;
         for name in names {
-            if self.cancelled || Instant::now() >= self.deadline {
+            if self.cancelled
+                || self.filesystem_cancelled.is_cancelled()
+                || Instant::now() >= self.deadline
+            {
                 return Observation::Unverified(
                     "The run was cancelled or exceeded its whole-run deadline.",
                 );
             }
-            let selected = select_executable(name, self.path.as_deref(), &self.root);
+            let selected = self.select(name).await;
             let executable = match selected {
                 Selection::Missing => continue,
                 Selection::Unverified(reason) => return Observation::Unverified(reason),

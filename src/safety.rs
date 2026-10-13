@@ -1,12 +1,75 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 
 pub const FILE_LIMIT: usize = 1024 * 1024;
 pub const TOTAL_LIMIT: usize = 16 * FILE_LIMIT;
 pub const OUTPUT_LIMIT: usize = 16 * 1024;
 pub const RUN_LIMIT: Duration = Duration::from_secs(15);
+
+#[derive(Default)]
+pub struct Cancellation {
+    flag: AtomicBool,
+    notification: tokio::sync::Notify,
+}
+
+impl Cancellation {
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Relaxed)
+    }
+
+    pub fn cancel(&self) {
+        self.flag.store(true, Ordering::Relaxed);
+        self.notification.notify_one();
+    }
+
+    pub async fn wait(&self) {
+        if !self.is_cancelled() {
+            self.notification.notified().await;
+        }
+    }
+}
+
+pub struct CancellationListener(pub tokio::task::JoinHandle<()>);
+
+impl Drop for CancellationListener {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+pub async fn within_deadline<T: Send + 'static>(
+    deadline: Instant,
+    cancelled: &Cancellation,
+    operation: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, &'static str> {
+    if cancelled.is_cancelled() {
+        return Err("The run was cancelled.");
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("The whole-run deadline was exceeded.");
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("repo-doctor-files".into())
+        .spawn(move || {
+            let _ = sender.send(operation());
+        })
+        .map_err(|_| "Filesystem inspection could not be started.")?;
+    tokio::select! {
+        result = receiver => result.map_err(|_| "Filesystem inspection could not be completed."),
+        _ = tokio::time::sleep_until(deadline.into()) => Err("The whole-run deadline was exceeded."),
+        _ = cancelled.wait() => {
+            Err("The run was cancelled.")
+        }
+    }
+}
 
 pub fn safe_text(text: &str) -> String {
     text.chars()
@@ -45,6 +108,7 @@ pub fn relative_path(path: &str) -> bool {
 pub struct FileReader {
     pub root: PathBuf,
     pub deadline: Instant,
+    pub cancelled: Arc<Cancellation>,
     total: usize,
 }
 
@@ -53,11 +117,21 @@ impl FileReader {
         Self {
             root,
             deadline: Instant::now() + RUN_LIMIT,
+            cancelled: Default::default(),
             total: 0,
         }
     }
 
-    pub fn boundary(&self, name: &str) -> Result<(), &'static str> {
+    pub async fn boundary(&self, name: &str) -> Result<(), &'static str> {
+        let reader = Self::new(self.root.clone());
+        let name = name.to_owned();
+        within_deadline(self.deadline, &self.cancelled, move || {
+            reader.boundary_local(&name)
+        })
+        .await?
+    }
+
+    fn boundary_local(&self, name: &str) -> Result<(), &'static str> {
         if !relative_path(name) {
             return Err("The file path must remain inside the selected project.");
         }
@@ -80,7 +154,16 @@ impl FileReader {
         }
     }
 
-    pub fn present(&self, name: &str) -> Result<bool, &'static str> {
+    pub async fn present(&self, name: &str) -> Result<bool, &'static str> {
+        let reader = Self::new(self.root.clone());
+        let name = name.to_owned();
+        within_deadline(self.deadline, &self.cancelled, move || {
+            reader.present_local(&name)
+        })
+        .await?
+    }
+
+    fn present_local(&self, name: &str) -> Result<bool, &'static str> {
         let selected = self.root.join(name);
         match selected.canonicalize() {
             Ok(path) if !path.starts_with(&self.root) => {
@@ -98,10 +181,26 @@ impl FileReader {
         }
     }
 
-    pub fn read(&mut self, name: &str) -> Result<Option<String>, &'static str> {
-        if Instant::now() >= self.deadline {
-            return Err("The whole-run deadline was exceeded.");
+    pub async fn read(&mut self, name: &str) -> Result<Option<String>, &'static str> {
+        let reader = Self::new(self.root.clone());
+        let name = name.to_owned();
+        let bytes = within_deadline(self.deadline, &self.cancelled, move || {
+            reader.read_local(&name)
+        })
+        .await??;
+        let Some(bytes) = bytes else {
+            return Ok(None);
+        };
+        self.total += bytes.len();
+        if self.total > TOTAL_LIMIT {
+            return Err("Inputs exceed the combined 16 MiB limit.");
         }
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| "The file is not valid UTF-8.")
+    }
+
+    fn read_local(&self, name: &str) -> Result<Option<Vec<u8>>, &'static str> {
         if !relative_path(name) {
             return Err("The file path must remain inside the selected project.");
         }
@@ -146,12 +245,6 @@ impl FileReader {
         if bytes.len() > FILE_LIMIT {
             return Err("The file exceeds the 1 MiB input limit.");
         }
-        self.total += bytes.len();
-        if self.total > TOTAL_LIMIT {
-            return Err("Inputs exceed the combined 16 MiB limit.");
-        }
-        String::from_utf8(bytes)
-            .map(Some)
-            .map_err(|_| "The file is not valid UTF-8.")
+        Ok(Some(bytes))
     }
 }

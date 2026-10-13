@@ -2,6 +2,13 @@
 
 ## 0.1.0
 
-Initial source implementation with selected-directory discovery, Node.js and Python requirements, environment checks, configured loopback ports and optional TCP reachability. Includes static and strict modes, human and versioned JSON reports, bounded probes and macOS/Linux CI.
+Initial release candidate:
 
-No package or public release has been published.
+- Selected-directory discovery for Node.js, Python and hybrid projects, with every supported runtime declaration evaluated.
+- Required environment names, literal file parsing, explicit precedence and diagnostics that omit values.
+- Configured loopback port availability and optional TCP reachability, with static and strict modes.
+- Human reports and schema 1 JSON with stable check IDs, completeness and exit codes.
+- Bounded file and PATH inspection, runtime output and socket probes, including cancellation and child cleanup.
+- Source installation, native archive packaging, retained dependency licenses and a synthetic failure-to-correction demo.
+
+Native validation covers macOS arm64 and Debian Linux arm64. Hosted CI has not run; x86_64 and Windows remain unverified. No package or public release has been published.

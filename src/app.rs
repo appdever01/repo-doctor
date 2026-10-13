@@ -4,11 +4,27 @@ use crate::config::{Config, Endpoint};
 use crate::discovery::discover;
 use crate::model::{CheckResult, Report, Status};
 use crate::runner::Host;
-use crate::safety::FileReader;
+use crate::safety::{Cancellation, CancellationListener, FileReader, RUN_LIMIT, within_deadline};
+use std::sync::Arc;
+use std::time::Instant;
 
 pub async fn check(options: &Options) -> Report {
-    let root = match options.path.canonicalize() {
-        Ok(root) if root.is_dir() => root,
+    let deadline = Instant::now() + RUN_LIMIT;
+    let cancelled = Arc::new(Cancellation::default());
+    let observed = cancelled.clone();
+    let _listener = CancellationListener(tokio::spawn(async move {
+        crate::runner::cancellation().await;
+        observed.cancel();
+    }));
+    tokio::task::yield_now().await;
+    let target = options.path.clone();
+    let root = match within_deadline(deadline, &cancelled, move || {
+        target.canonicalize().ok().filter(|root| root.is_dir())
+    })
+    .await
+    {
+        Ok(Some(root)) => root,
+        Err(reason) => return execution_error(reason, options.strict),
         _ => {
             return Report::build(
                 vec![CheckResult::new(
@@ -25,12 +41,17 @@ pub async fn check(options: &Options) -> Report {
         }
     };
     let mut reader = FileReader::new(root.clone());
-    let (config, configured) = match reader.read(".repo-doctor.toml") {
+    reader.deadline = deadline;
+    reader.cancelled = cancelled.clone();
+    let (config, configured) = match reader.read(".repo-doctor.toml").await {
         Ok(Some(text)) => match Config::parse(&text) {
             Ok(config) => (config, true),
             Err(reason) => return invalid_config(reason, options.strict),
         },
         Ok(None) => (Config::default(), false),
+        Err(reason) if cancelled.is_cancelled() || Instant::now() >= deadline => {
+            return execution_error(reason, options.strict);
+        }
         Err(reason) => return invalid_config(reason, options.strict),
     };
     let mut host = Host {
@@ -38,13 +59,17 @@ pub async fn check(options: &Options) -> Report {
         path: std::env::var_os("PATH"),
         deadline: reader.deadline,
         cancelled: false,
+        filesystem_cancelled: cancelled.clone(),
     };
     for path in config.env.template.iter().chain(&config.env.files) {
-        if let Err(reason) = reader.boundary(path) {
+        if let Err(reason) = reader.boundary(path).await {
+            if cancelled.is_cancelled() || Instant::now() >= deadline {
+                return execution_error(reason, options.strict);
+            }
             return invalid_config(reason, options.strict);
         }
     }
-    let mut project = discover(&mut reader, &config, configured, &host, options.static_mode);
+    let mut project = discover(&mut reader, &config, configured, &host, options.static_mode).await;
     if !project.supported {
         project.findings.push(
             CheckResult::new(
@@ -60,13 +85,15 @@ pub async fn check(options: &Options) -> Report {
     }
     project
         .findings
-        .extend(environment::check(&mut reader, &config.env));
+        .extend(environment::check(&mut reader, &config.env).await);
+    host.cancelled |= cancelled.is_cancelled();
     let kinds = project.runtimes.iter().map(|r| r.kind.to_owned()).collect();
     for runtime in &project.runtimes {
         project
             .findings
             .extend(runtime::check(runtime, &mut host, options.static_mode).await);
     }
+    host.cancelled |= cancelled.is_cancelled();
     for endpoint in &config.ports {
         project.findings.push(
             endpoint_check(
@@ -99,6 +126,21 @@ pub async fn check(options: &Options) -> Report {
         ));
     }
     Report::build(project.findings, kinds, options.strict, false)
+}
+
+fn execution_error(reason: &str, strict: bool) -> Report {
+    Report::build(
+        vec![CheckResult::new(
+            "execution.incomplete",
+            Status::Error,
+            "execution.incomplete",
+            reason,
+            "execution policy",
+        )],
+        vec![],
+        strict,
+        false,
+    )
 }
 
 async fn endpoint_check(

@@ -21,6 +21,20 @@ repo-doctor --version
 
 Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source installation, tests and release builds are verified on macOS arm64 with Rust 1.97.1 and Debian Linux arm64 in Docker with Rust 1.99.0. The hosted CI workflow targets macOS and Linux; its jobs have not run yet. Windows support is deferred. There is no crates.io package or automatic installer.
 
+## Native archives
+
+Version 0.1.0 archives are prepared for `aarch64-apple-darwin` and `aarch64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux build is tested on Debian arm64 and requires glibc; Alpine Linux is unsupported. No x86_64 archive has been verified.
+
+After downloading the matching archive and its `.sha256` file, verify and extract it:
+
+```sh
+shasum -a 256 -c repo-doctor-0.1.0-aarch64-apple-darwin.tar.gz.sha256
+tar -xzf repo-doctor-0.1.0-aarch64-apple-darwin.tar.gz
+./repo-doctor-0.1.0-aarch64-apple-darwin/repo-doctor --version
+```
+
+Use the GNU/Linux filenames on Linux; `sha256sum -c` also verifies the checksum there. Move the binary to a directory on PATH if you want to run it from anywhere. These are unsigned command-line binaries; source installation is available if local policy requires signed downloads. Release assets are being prepared and have not been published.
+
 ## Use
 
 ```sh
@@ -106,7 +120,7 @@ Outcomes are `passed`, `issues_found`, `incomplete`, `invalid_input` and `intern
 
 Checks run sequentially. Runtime probes have a 3-second deadline, TCP connections 500 milliseconds, and the run a 15-second deadline. Each input file is limited to 1 MiB, combined contents to 16 MiB, captured output to 16 KiB per stream, and port and service checks to 32 combined. There are at most 32 environment value files. Errors and unfinished checks stay visible. Child processes are terminated and reaped, and sockets are released.
 
-These deadlines cover normal local regular-file access. A blocked filesystem operation on an unavailable mount is outside the deadline guarantee. Probes clear inherited startup variables and use fixed arguments. No remote network request is made by the tool; service checks stay on loopback.
+File and PATH inspection use bounded worker waits, so a stalled filesystem operation produces an incomplete report at the run deadline. The command does not wait for a stalled worker during shutdown. Probes clear inherited startup variables and use fixed arguments. No remote network request is made by the tool; service checks stay on loopback.
 
 Version 0.1.0 does not inspect virtual environments, installed packages, Docker, recursive monorepos or database credentials. An accepted TCP connection establishes reachability only.
 
@@ -119,6 +133,7 @@ cargo test --locked -j 2 -- --test-threads=2
 cargo fmt --check
 cargo clippy --locked -j 2 --all-targets -- -D warnings
 cargo build --locked --release -j 2
+sh scripts/package-release.sh
 ```
 
 The binary uses a small library. Discovery retains declarations, check modules interpret them, and bounded host adapters collect observations. Both renderers share a report and exit policy. Tests cover parsing, subprocess and socket behavior, schema validation, safety boundaries and corrected-project workflows.

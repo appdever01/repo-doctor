@@ -1,7 +1,7 @@
 use crate::checks::runtime::Runtime;
 use crate::config::Config;
 use crate::model::{CheckResult, Status};
-use crate::runner::{Host, Selection, select_executable};
+use crate::runner::{Host, Selection};
 use crate::safety::FileReader;
 use std::collections::BTreeSet;
 
@@ -11,8 +11,12 @@ pub struct ProjectRequirements {
     pub supported: bool,
 }
 
-fn read(reader: &mut FileReader, name: &str, findings: &mut Vec<CheckResult>) -> Option<String> {
-    match reader.read(name) {
+async fn read(
+    reader: &mut FileReader,
+    name: &str,
+    findings: &mut Vec<CheckResult>,
+) -> Option<String> {
+    match reader.read(name).await {
         Ok(input) => input,
         Err(reason) => {
             findings.push(CheckResult::new(
@@ -27,7 +31,7 @@ fn read(reader: &mut FileReader, name: &str, findings: &mut Vec<CheckResult>) ->
     }
 }
 
-pub fn discover(
+pub async fn discover(
     reader: &mut FileReader,
     config: &Config,
     configured: bool,
@@ -41,7 +45,7 @@ pub fn discover(
     let mut python_present = config.runtimes.python.is_some();
     let mut managers = BTreeSet::new();
     let mut package_found = false;
-    if let Some(input) = read(reader, "package.json", &mut findings) {
+    if let Some(input) = read(reader, "package.json", &mut findings).await {
         node_present = true;
         package_found = true;
         match serde_json::from_str::<serde_json::Value>(&input) {
@@ -93,7 +97,7 @@ pub fn discover(
             )),
         }
     }
-    if let Some(input) = read(reader, "pyproject.toml", &mut findings) {
+    if let Some(input) = read(reader, "pyproject.toml", &mut findings).await {
         python_present = true;
         match toml::from_str::<toml::Value>(&input) {
             Ok(value) => {
@@ -125,12 +129,12 @@ pub fn discover(
         }
     }
     for name in [".nvmrc", ".node-version"] {
-        if let Some(value) = read(reader, name, &mut findings) {
+        if let Some(value) = read(reader, name, &mut findings).await {
             node_present = true;
             node.add(&value, name, true);
         }
     }
-    if let Some(value) = read(reader, ".python-version", &mut findings) {
+    if let Some(value) = read(reader, ".python-version", &mut findings).await {
         python_present = true;
         python.add(&value, ".python-version", true);
     }
@@ -147,7 +151,7 @@ pub fn discover(
         ("bun.lock", "bun"),
         ("bun.lockb", "bun"),
     ] {
-        match reader.present(name) {
+        match reader.present(name).await {
             Ok(true) => {
                 managers.insert(manager.into());
             }
@@ -203,34 +207,32 @@ pub fn discover(
             ));
             continue;
         }
-        findings.push(
-            match select_executable(&manager, host.path.as_deref(), &host.root) {
-                Selection::Trusted(_) => CheckResult::new(
-                    &id,
-                    Status::Pass,
-                    "package_manager.launcher_present",
-                    format!("{manager} launcher is present; it was not executed."),
-                    "root lockfiles and package.json",
-                ),
-                Selection::Missing => CheckResult::new(
-                    &id,
-                    Status::Fail,
-                    "package_manager.launcher_missing",
-                    format!("{manager} launcher is absent from PATH."),
-                    "root lockfiles and package.json",
-                )
-                .next(format!(
-                    "Install or select the {manager} launcher outside Repo Doctor."
-                )),
-                Selection::Unverified(reason) => CheckResult::new(
-                    &id,
-                    Status::Skipped,
-                    "package_manager.launcher_unverified",
-                    reason,
-                    "host PATH",
-                ),
-            },
-        );
+        findings.push(match host.select(&manager).await {
+            Selection::Trusted(_) => CheckResult::new(
+                &id,
+                Status::Pass,
+                "package_manager.launcher_present",
+                format!("{manager} launcher is present; it was not executed."),
+                "root lockfiles and package.json",
+            ),
+            Selection::Missing => CheckResult::new(
+                &id,
+                Status::Fail,
+                "package_manager.launcher_missing",
+                format!("{manager} launcher is absent from PATH."),
+                "root lockfiles and package.json",
+            )
+            .next(format!(
+                "Install or select the {manager} launcher outside Repo Doctor."
+            )),
+            Selection::Unverified(reason) => CheckResult::new(
+                &id,
+                Status::Skipped,
+                "package_manager.launcher_unverified",
+                reason,
+                "host PATH",
+            ),
+        });
     }
     let mut runtimes = vec![];
     if node_present && !bun_only {

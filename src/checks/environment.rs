@@ -77,14 +77,14 @@ pub fn parse(input: &str) -> Result<Parsed, usize> {
     Ok(Parsed { values, duplicates })
 }
 
-fn load(
+async fn load(
     reader: &mut FileReader,
     file: &str,
     id: &str,
     explicit: bool,
     checks: &mut Vec<CheckResult>,
 ) -> Result<Option<Parsed>, ()> {
-    match reader.read(file) {
+    match reader.read(file).await {
         Ok(Some(input)) => match parse(&input) {
             Ok(parsed) => {
                 for name in &parsed.duplicates {
@@ -130,7 +130,7 @@ fn load(
     }
 }
 
-pub fn check(reader: &mut FileReader, config: &Environment) -> Vec<CheckResult> {
+pub async fn check(reader: &mut FileReader, config: &Environment) -> Vec<CheckResult> {
     let mut checks = vec![];
     let template = config.template.as_deref().unwrap_or(".env.example");
     let mut required: BTreeMap<String, Vec<String>> = config
@@ -144,7 +144,9 @@ pub fn check(reader: &mut FileReader, config: &Environment) -> Vec<CheckResult> 
         "env.template",
         config.template.is_some(),
         &mut checks,
-    ) {
+    )
+    .await
+    {
         for key in parsed.values.keys() {
             if !config.optional.contains(key) {
                 required
@@ -157,7 +159,7 @@ pub fn check(reader: &mut FileReader, config: &Environment) -> Vec<CheckResult> 
     let mut values = BTreeMap::new();
     let mut reliable = true;
     for (i, file) in config.files.iter().enumerate() {
-        match load(reader, file, &format!("env.file.{i}"), false, &mut checks) {
+        match load(reader, file, &format!("env.file.{i}"), false, &mut checks).await {
             Ok(Some(parsed)) => values.extend(parsed.values),
             Ok(None) => (),
             Err(()) => reliable = false,
