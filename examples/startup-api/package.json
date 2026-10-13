@@ -1,0 +1,7 @@
+{
+  "name": "repo-doctor-startup-fixture",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}

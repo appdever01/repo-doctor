@@ -1,4 +1,4 @@
-use crate::checks::{dependencies, environment, runtime, sockets};
+use crate::checks::{dependencies, environment, runtime, sockets, startup};
 use crate::cli::Options;
 use crate::config::{Config, Endpoint};
 use crate::discovery::discover;
@@ -61,6 +61,12 @@ pub async fn check(options: &Options) -> Report {
         cancelled: false,
         filesystem_cancelled: cancelled.clone(),
     };
+    if options.startup && config.startup.is_none() {
+        return invalid_config(
+            "--startup requires an explicit [startup] configuration.",
+            options.strict,
+        );
+    }
     for path in config.env.template.iter().chain(&config.env.files) {
         if let Err(reason) = reader.boundary(path).await {
             if cancelled.is_cancelled() || Instant::now() >= deadline {
@@ -116,6 +122,23 @@ pub async fn check(options: &Options) -> Report {
                 endpoint,
                 true,
                 options.services && !options.static_mode && !host.cancelled,
+                &mut host,
+            )
+            .await,
+        );
+    }
+    if let Some(startup) = &config.startup {
+        let setup_passed = project.findings.iter().all(|check| {
+            check.evaluated
+                && !matches!(check.status, Status::Fail | Status::Error)
+                && !(options.strict && check.status == Status::Warn)
+        });
+        project.findings.push(
+            startup::check(
+                startup,
+                options.startup && !options.static_mode,
+                setup_passed,
+                &mut reader,
                 &mut host,
             )
             .await,

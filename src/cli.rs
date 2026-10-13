@@ -14,7 +14,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    #[command(about = "Inspect a selected project without changing its files")]
+    #[command(about = "Inspect setup and optionally run a bounded startup check")]
     Check(Options),
 }
 
@@ -33,6 +33,11 @@ pub struct Options {
     pub static_mode: bool,
     #[arg(long, help = "Enable configured loopback TCP connection checks")]
     pub services: bool,
+    #[arg(
+        long,
+        help = "Run the configured startup command after setup passes; executes project code"
+    )]
+    pub startup: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

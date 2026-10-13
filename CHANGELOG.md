@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 - 2026-10-14
+
+- Add an explicit `--startup` check after complete passing setup, with a configured argument array and either foreground TCP readiness or successful command exit.
+- Require successive loopback TCP probes for one second while the foreground process stays alive; reject occupied ports before launching anything.
+- Bound startup to 10 seconds within the existing 15-second run, discard output with a 16 KiB limit per stream, and terminate the new process group and reap its direct child on completion, failure or cancellation.
+- Keep startup disabled by default and in static mode. Never install dependencies, approve builds or change approval settings; npm/pnpm startup supports only an explicit application `run` script with lifecycle hooks disabled.
+
+Startup executes trusted project code and can have its own side effects. It is not a sandbox or a full application-health test. Arguments, environment values and application logs are omitted from reports. The JSON/configuration schema and exit-code contract remain unchanged. Versions 0.1.0 and 0.1.1 remain available unchanged.
+
 ## 0.1.1 - 2026-10-13
 
 - Check required direct Node dependencies and development dependencies for installed package manifests without loading package code.

@@ -1,6 +1,6 @@
 [package]
 name = "repo-doctor"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Explain unmet local setup requirements in Node.js and Python projects"
 license = "MIT"

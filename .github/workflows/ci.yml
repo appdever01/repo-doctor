@@ -42,6 +42,7 @@ jobs:
           cargo install --path . --locked --root "$RUNNER_TEMP/repo-doctor-install" --target-dir target -j 2
           "$RUNNER_TEMP/repo-doctor-install/bin/repo-doctor" --version
           "$RUNNER_TEMP/repo-doctor-install/bin/repo-doctor" check examples/demo-api --static --format json > "$RUNNER_TEMP/static-report.json" || test "$?" -eq 1
+          "$RUNNER_TEMP/repo-doctor-install/bin/repo-doctor" check examples/startup-api --startup --strict --format json > "$RUNNER_TEMP/startup-report.json"
       - name: Package native build
         run: |
           sh scripts/package-release.sh "$RUNNER_TEMP/repo-doctor-dist"

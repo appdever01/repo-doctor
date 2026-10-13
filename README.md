@@ -6,7 +6,7 @@ Repo Doctor explains unmet local setup requirements in Node.js and Python projec
 repo-doctor check
 ```
 
-Each finding includes its source and a next step when needed. The tool reads the selected directory without running project scripts, installing packages or changing files. It works offline. Passing means the supported setup checks succeeded; build outputs, credentials and application health need their own checks.
+Each finding includes its source and a next step when needed. Normal checks read the selected directory without running project scripts, installing packages or changing files. They work offline. An explicit `--startup` check can run a configured application command after setup passes. Passing covers the conditions checked; credentials and full application health still need their own checks.
 
 ## Install from source
 
@@ -19,18 +19,18 @@ cargo install --path . --locked -j 2
 repo-doctor --version
 ```
 
-Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source installation, tests and release builds are verified on macOS arm64 with Rust 1.97.1 and Debian Linux arm64 in Docker with Rust 1.99.0. Hosted macOS arm64 and Ubuntu Linux x86_64 checks also passed with Rust 1.99.0. See the [CI runs](https://github.com/appdever01/repo-doctor/actions). Windows support is deferred. There is no crates.io package or automatic installer.
+Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Platform validation and any hosted CI limitations are recorded in each release. Earlier releases passed hosted macOS arm64 and Ubuntu Linux x86_64 checks with Rust 1.99.0. See the [CI runs](https://github.com/appdever01/repo-doctor/actions). Windows support is deferred. There is no crates.io package or automatic installer.
 
 ## Native archives
 
-Download [version 0.1.1](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.1) archives for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified. [Version 0.1.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.0) remains available unchanged.
+Download [version 0.2.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.2.0) archives for `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux archives target systems with glibc 2.39 or newer and `libgcc_s.so.1`. Alpine Linux and older glibc systems need their own source build. Intel macOS remains unverified. [Versions 0.1.0](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.0) and [0.1.1](https://github.com/appdever01/repo-doctor/releases/tag/v0.1.1) remain available unchanged.
 
 After downloading the matching archive and its `.sha256` file, verify and extract it:
 
 ```sh
-shasum -a 256 -c repo-doctor-0.1.1-aarch64-apple-darwin.tar.gz.sha256
-tar -xzf repo-doctor-0.1.1-aarch64-apple-darwin.tar.gz
-./repo-doctor-0.1.1-aarch64-apple-darwin/repo-doctor --version
+shasum -a 256 -c repo-doctor-0.2.0-aarch64-apple-darwin.tar.gz.sha256
+tar -xzf repo-doctor-0.2.0-aarch64-apple-darwin.tar.gz
+./repo-doctor-0.2.0-aarch64-apple-darwin/repo-doctor --version
 ```
 
 Use the GNU/Linux filenames on Linux; `sha256sum -c` also verifies the checksum there. Move the binary to a directory on PATH if you want to run it from anywhere. These are unsigned command-line binaries; source installation is available if local policy requires signed downloads.
@@ -43,6 +43,7 @@ repo-doctor check --format json
 repo-doctor check --strict
 repo-doctor check --static
 repo-doctor check --services
+repo-doctor check --startup
 ```
 
 The path defaults to the current directory. Repo Doctor does not search parent directories or recursively scan workspaces. `--static` reads project files and skips host and socket observations. `--services` enables configured TCP connections; static mode takes priority. `--strict` rejects warnings and incomplete coverage as well as failures.
@@ -54,11 +55,12 @@ The path defaults to the current directory. Repo Doctor does not search parent d
 | Node.js | `package.json.engines.node`, `.nvmrc`, `.node-version`, and explicit configuration. Every declaration is evaluated. |
 | Python | `pyproject.toml` with `project.requires-python`, `.python-version`, and explicit configuration. Host Python 3 only. |
 | Environment | Names from `.env.example`, plus configured required names. Template values never satisfy a requirement. |
-| Package manager | Root npm, pnpm, Yarn and Bun lockfile names and `packageManager`. Launcher presence only; launchers are never executed. Conflicting hints are reported. Bun runtime checks are unsupported. |
+| Package manager | Root npm, pnpm, Yarn and Bun lockfile names and `packageManager`. Launcher presence only; setup inspection never executes launchers. Conflicting hints are reported. Bun runtime checks are unsupported. |
 | Installed dependencies | Each required direct dependency and development dependency in `package.json` must have a readable JSON object at `node_modules/<name>/package.json`. Optional and peer dependencies are excluded. Package code is never loaded. |
-| pnpm builds | Read `ignoredBuilds` and `pendingBuilds` in `node_modules/.modules.yaml`. Recorded blocked or pending scripts fail; Repo Doctor never invokes pnpm, approves scripts or checks native build output. |
+| pnpm builds | Read `ignoredBuilds` and `pendingBuilds` in `node_modules/.modules.yaml`. Recorded blocked or pending scripts fail; this setup check never invokes pnpm, approves scripts or checks native build output. |
 | Ports | Temporarily bind explicitly configured loopback ports and release them. Availability can change after the check. |
 | Services | With `--services`, attempt a bounded loopback TCP connection. No payload or authentication is sent. |
+| Startup | With `--startup`, execute a configured command after complete passing setup. Require successful exit or successive TCP readiness probes, then stop its process group. |
 
 Node ranges use npm semantics, including exact versions, major ranges, comparators, caret ranges and `||`. Numeric version files accept `22` (stable 22.x), `22.1` (stable 22.1.x) and `v22.1.0` (exact). Named aliases such as `lts/*` remain unverified.
 
@@ -105,6 +107,33 @@ pnpm metadata support covers emitted layout version 5, isolated or hoisted `node
 
 Plug'n'Play loaders and symlinks outside the selected directory remain unverified. pnpm's explicit omission of development dependencies produces skipped development checks; strict mode rejects that incomplete coverage. Other `node_modules` installations check development dependencies too. Review missing dependencies and recorded blocked builds outside Repo Doctor. A blocked script can be intentional or unnecessary when a package supplies prebuilt output; the finding reports pnpm's record, not a proven startup failure.
 
+## Optional startup check
+
+This check executes project code only when you supply `--startup`. Review the command and trust the project first: the application may write files, run its own actions or contact services. Repo Doctor is not a sandbox. Normal and static checks do not execute it.
+
+Add a TCP startup condition for a foreground server:
+
+```toml
+[startup]
+command = ["node", "server.js"]
+mode = "tcp"
+address = "127.0.0.1"
+port = 3000
+timeout_seconds = 10
+```
+
+Run `repo-doctor check --startup --strict`. All setup checks must pass with complete coverage first; enable `--services` too if services are configured. A configured startup check without `--startup`, or in static mode, remains skipped and incomplete. `--startup` without configuration is an input error. Repo Doctor never guesses a script or port.
+
+The port must initially be free. Repo Doctor launches one foreground process in the selected directory, polls the loopback endpoint, and requires successive TCP connections for one second with the process still running. Early exits, a listener that disappears, output-limit violations and timeouts cannot pass. After every result or cancellation, it kills the process group it started and waits within the cleanup budget for its direct child. Existing processes are never reused or stopped. SIGINT and SIGTERM cancellation follow the same cleanup path. Backgrounding, daemonization, children escaping the process group and forcible termination of Repo Doctor are unsupported. TCP probes send no payload and do not prove listener ownership, HTTP responses, authentication or later application health.
+
+For a command intended to finish, use `mode = "exit"` and omit `address` and `port`. Only exit code zero with bounded completed output passes; staying alive until the timeout does not. For example, `command = ["python3", "app.py"]` can check a one-shot Python application.
+
+Supported launchers are host `node`, `python`, `python3`, `npm` and `pnpm`, selected through the same trusted-PATH rules as runtime probes. Runtime commands require a relative entry-point file inside the project; shell commands, inline evaluation and arbitrary executables are unsupported. Package managers require an explicit application script such as `command = ["pnpm", "run", "dev", "--hostname", "127.0.0.1", "--port", "3000"]`. Repo Doctor forces install lifecycle hooks and automatic pre/post hooks off, disables automatic dependency installation, Corepack downloads and pnpm version/runtime downloads, and never issues install, rebuild or approval commands. A pnpm version mismatch fails instead of fetching the declared version; select the compatible host launcher yourself. The chosen application script still executes its own code; these settings are not a security boundary against a malicious project.
+
+The child inherits the shell environment with startup-injection variables removed (`NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, and loader overrides). Repo Doctor does not export dotenv values into the child: the application uses its own normal file-loading behavior. Keep credentials out of the command array. Arguments, environment values and all application output are absent from reports; failures give a safe exit status or condition and point to manual review.
+
+Startup has a maximum 10-second budget, capped by the remaining 15-second run with one second reserved for cleanup. TCP mode needs a timeout of 2 to 10 seconds; exit mode allows 1 to 10. Each output stream stops inspection above 16 KiB using fixed-size buffers. The command allows 2 to 32 arguments, at most 1 KiB each and 4 KiB combined. A shortened run budget or failed cleanup remains an inspection error, never a startup pass.
+
 ## Environment rules
 
 By default, `.env` loads first, `.env.local` overrides it, and process variables override both. An empty higher-priority value stays empty. This is Repo Doctor's convention; list different files if your framework uses another order.
@@ -130,13 +159,13 @@ Outcomes are `passed`, `issues_found`, `incomplete`, `invalid_input` and `intern
 
 Checks run sequentially. Runtime probes have a 3-second deadline, TCP connections 500 milliseconds, and the run a 15-second deadline. Each input file is limited to 1 MiB, combined contents to 16 MiB, captured output to 16 KiB per stream, and port and service checks to 32 combined. There are at most 32 environment value files, 256 entries per dependency declaration field, 256 required direct dependencies and 256 pnpm build records. Errors and unfinished checks stay visible. Child processes are terminated and reaped, and sockets are released.
 
-File and PATH inspection use bounded worker waits, so a stalled filesystem operation produces an incomplete report at the run deadline. The command does not wait for a stalled worker during shutdown. Probes clear inherited startup variables and use fixed arguments. No remote network request is made by the tool; service checks stay on loopback.
+File and PATH inspection use bounded worker waits, so a stalled filesystem operation produces an incomplete report at the run deadline. The command does not wait for a stalled worker during shutdown. Runtime version probes clear inherited startup variables and use fixed arguments. Repo Doctor makes no remote network request; its TCP checks stay on loopback. An opted-in application command can perform its own network requests or other actions.
 
-Version 0.1.1 does not inspect virtual environments, Docker, recursive monorepos or database credentials. An accepted TCP connection establishes reachability only.
+Version 0.2.0 does not inspect virtual environments, Docker, recursive monorepos or database credentials. An accepted TCP connection establishes reachability only.
 
 ## Demo and development
 
-The [synthetic demo fixture](examples/demo-api) contains a deliberately mismatched Node requirement and a missing variable. Its README explains how to inspect a copy and correct it. Workflow tests also hold a temporary port open, verify the failure, release it and confirm the corrected setup passes.
+The [startup fixture](examples/startup-api) demonstrates an opted-in server check with no installed dependencies. The [synthetic demo fixture](examples/demo-api) contains a deliberately mismatched Node requirement and a missing variable. Its README explains how to inspect a copy and correct it. Workflow tests also hold a temporary port open, verify the failure, release it and confirm the corrected setup passes.
 
 ```sh
 cargo test --locked -j 2 -- --test-threads=2

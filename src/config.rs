@@ -14,6 +14,7 @@ pub struct Config {
     pub ports: Vec<Endpoint>,
     #[serde(default)]
     pub services: Vec<Endpoint>,
+    pub startup: Option<Startup>,
 }
 
 impl Default for Config {
@@ -24,6 +25,7 @@ impl Default for Config {
             env: Environment::default(),
             ports: vec![],
             services: vec![],
+            startup: None,
         }
     }
 }
@@ -70,12 +72,115 @@ pub struct Endpoint {
     pub port: u16,
 }
 
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupMode {
+    Tcp,
+    Exit,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Startup {
+    pub command: Vec<String>,
+    pub mode: StartupMode,
+    pub address: Option<IpAddr>,
+    pub port: Option<u16>,
+    #[serde(default = "startup_timeout")]
+    pub timeout_seconds: u64,
+}
+
+fn startup_timeout() -> u64 {
+    10
+}
+
+impl Startup {
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.command.len() < 2
+            || self.command.len() > 32
+            || self
+                .command
+                .iter()
+                .any(|arg| arg.is_empty() || arg.len() > 1024 || arg.chars().any(char::is_control))
+            || self.command.iter().map(String::len).sum::<usize>() > 4096
+            || !(1..=10).contains(&self.timeout_seconds)
+        {
+            return Err(
+                "Startup requires 2 to 32 bounded arguments and a timeout from 1 to 10 seconds.",
+            );
+        }
+        match self.command[0].as_str() {
+            "node" | "python" | "python3" => {
+                if self.command[1].starts_with('-')
+                    || !crate::safety::relative_path(&self.command[1])
+                {
+                    return Err(
+                        "Runtime startup requires a relative project entry-point file, followed by its arguments.",
+                    );
+                }
+            }
+            "npm" | "pnpm" => {
+                if self.command.len() < 3 || self.command[1] != "run" {
+                    return Err(
+                        "Package-manager startup supports only an explicit run command and script name.",
+                    );
+                }
+                let name = &self.command[2];
+                if !name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"-_:".contains(&c))
+                    || name.starts_with('-')
+                    || [
+                        "install",
+                        "preinstall",
+                        "postinstall",
+                        "prepare",
+                        "approve-builds",
+                        "rebuild",
+                    ]
+                    .contains(&name.as_str())
+                    || self.command[3..].iter().any(|arg| {
+                        arg.starts_with("--ignore-scripts")
+                            || arg.starts_with("--enable-pre-post-scripts")
+                            || arg.starts_with("--config.")
+                    })
+                {
+                    return Err(
+                        "Startup must name an application script without installation, approval or script-policy overrides.",
+                    );
+                }
+            }
+            _ => {
+                return Err(
+                    "Startup supports host node, python, python3, npm run and pnpm run launchers; shell commands are unsupported.",
+                );
+            }
+        }
+        match self.mode {
+            StartupMode::Tcp
+                if self.address.is_some_and(|ip| ip.is_loopback())
+                    && self.port.is_some_and(|port| port != 0)
+                    && self.timeout_seconds >= 2 =>
+            {
+                Ok(())
+            }
+            StartupMode::Exit if self.address.is_none() && self.port.is_none() => Ok(()),
+            _ => Err(
+                "TCP startup requires a loopback IP, nonzero port and at least 2 seconds; exit startup must omit the address and port.",
+            ),
+        }
+    }
+}
+
 impl Config {
     pub fn parse(input: &str) -> Result<Self, &'static str> {
         let config: Self = toml::from_str(input)
             .map_err(|_| "Invalid configuration syntax, fields or value types.")?;
         if config.schema != 1 {
             return Err("Only configuration schema 1 is supported.");
+        }
+        if let Some(startup) = &config.startup {
+            startup.validate()?;
         }
         if config.ports.len() + config.services.len() > 32 {
             return Err("At most 32 port and service checks are allowed.");

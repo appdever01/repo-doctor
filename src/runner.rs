@@ -28,7 +28,25 @@ pub struct Host {
     pub filesystem_cancelled: Arc<Cancellation>,
 }
 
-struct ProcessGroup(Option<u32>);
+pub(crate) struct ProcessGroup(pub(crate) Option<u32>);
+
+impl ProcessGroup {
+    pub(crate) fn terminate(&mut self) -> Result<(), &'static str> {
+        #[cfg(unix)]
+        if let Some(pid) = self.0 {
+            use nix::{
+                errno::Errno,
+                sys::signal::{Signal, killpg},
+                unistd::Pid,
+            };
+            match killpg(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+                Ok(()) | Err(Errno::ESRCH) => self.0 = None,
+                Err(_) => return Err("The startup process group could not be terminated."),
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Drop for ProcessGroup {
     fn drop(&mut self) {

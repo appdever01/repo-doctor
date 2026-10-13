@@ -1,0 +1,8 @@
+schema = 1
+
+[startup]
+command = ["node", "server.cjs"]
+mode = "tcp"
+address = "127.0.0.1"
+port = 3001
+timeout_seconds = 5
