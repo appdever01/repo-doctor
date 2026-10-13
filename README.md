@@ -23,7 +23,7 @@ Cargo installs into `~/.cargo/bin`; add that directory to PATH if needed. Source
 
 ## Native archives
 
-Version 0.1.0 archives are prepared for `aarch64-apple-darwin` and `aarch64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux build is tested on Debian arm64 and requires glibc; Alpine Linux is unsupported. No x86_64 archive has been verified.
+Version 0.1.0 archives are prepared for `aarch64-apple-darwin` and `aarch64-unknown-linux-gnu`. They include the binary, build information, examples, report schema and licenses. The Linux binary requires glibc 2.39 or newer and `libgcc_s.so.1`; it is tested on Debian 13 arm64. Alpine Linux and older glibc systems need their own source build. No x86_64 archive has been verified.
 
 After downloading the matching archive and its `.sha256` file, verify and extract it:
 
