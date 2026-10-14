@@ -228,7 +228,8 @@ pub async fn check(
                 "--config.use-node-version=",
                 "--config.verify-deps-before-run=false",
             ])
-            .env("npm_config_enable_pre_post_scripts", "false");
+            .env("npm_config_enable_pre_post_scripts", "false")
+            .env_remove("pnpm_config_verify_deps_before_run");
     }
     command
         .args(&config.command[1..])

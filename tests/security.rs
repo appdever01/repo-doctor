@@ -245,7 +245,12 @@ async fn probes_are_bounded_and_reap_children() {
             .await
             .unwrap_err();
         assert!(error.contains(expected), "{script}: {error}");
-        assert!(start.elapsed() < Duration::from_secs(4));
+        let maximum = if expected == "deadline" {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_secs(4)
+        };
+        assert!(start.elapsed() < maximum);
     }
     let pid_file = host.path().join("pid");
     executable(
@@ -255,9 +260,13 @@ async fn probes_are_bounded_and_reap_children() {
             pid_file.display()
         ),
     );
-    repo_doctor::runner::probe(&executable_path, &["--version"], Duration::from_secs(3))
-        .await
-        .unwrap_err();
+    let start = Instant::now();
+    let error =
+        repo_doctor::runner::probe(&executable_path, &["--version"], Duration::from_secs(3))
+            .await
+            .unwrap_err();
+    assert!(error.contains("deadline"));
+    assert!(start.elapsed() < Duration::from_secs(4));
     let pid: i32 = fs::read_to_string(pid_file).unwrap().parse().unwrap();
     assert_eq!(
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
